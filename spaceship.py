@@ -45,7 +45,7 @@ class Player(Ship):
             dist = 1
         dir_x = dx/dist
         dir_y = dy/dist
-        self.lasers.append(Laser(self.x + 25, self.y + 25, dir_x, dir_y, color=(255, 0, 0)))
+        self.lasers.append(Laser(self.x + 25, self.y + 25, dir_x, dir_y, color=(0, 0, 255)))
 
 
 class Laser: #only circle
@@ -92,6 +92,7 @@ class Enemy(Ship):
         dir_y = dy / dist
         self.lasers.append(Laser(self.x + 25, self.y + 25, dir_x, dir_y))
     def move_laser(self, player):
+        global life
         for laser in self.lasers[:]:
             laser.move()
             if laser.collide(player):
@@ -100,11 +101,9 @@ class Enemy(Ship):
             elif laser.off_screen(WIDTH, HEIGHT):
                 self.lasers.remove(laser)
 
-
 def main():
     run = True
     FPS = 60
-    life = 5
     scores = 0
     main_font = pygame.font.SysFont("comicsans", 50)
 
@@ -114,13 +113,45 @@ def main():
 
     trap_phase = False
     trap_timer = 0
-    trap_pattern = []
+    trap_patterns = []
     trap_cooldown = 0
     noncore = 0
 
     player_vel = 23
-    player  = Player(875, 500)
+    player = Player(875, 500, health=5)
+    life = player.health
     clock = pygame.time.Clock()
+
+    def game_over_screen():
+        font = pygame.font.SysFont("comicsans", 100)
+        small_font = pygame.font.SysFont("comicsans", 50)
+
+        while True:
+            WIN.blit(BG, (0, 0))
+            game_over_label = font.render("GAME OVER", 1, (255, 0, 0))
+            restart_label = small_font.render("Restart", 1, (255, 255, 255))
+            quit_label = small_font.render("Quit", 1, (255, 255, 255))
+
+            WIN.blit(game_over_label, (WIDTH//2 - game_over_label.get_width()//2, HEIGHT//4))
+            WIN.blit(restart_label, (WIDTH//4 - restart_label.get_width()//2, HEIGHT//2))
+            WIN.blit(quit_label, (3*WIDTH//4 - quit_label.get_width()//2, HEIGHT//2))
+
+            pygame.display.update()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    mx, my = pygame.mouse.get_pos()
+                    # Restart area
+                    if WIDTH//4 - 100 < mx < WIDTH//4 + 100 and HEIGHT//2 < my < HEIGHT//2 + 50:
+                        main()  # restart
+                    # Quit area
+                    if 3*WIDTH//4 - 100 < mx < 3*WIDTH//4 + 100 and HEIGHT//2 < my < HEIGHT//2 + 50:
+                        pygame.quit()
+                        exit()
+
 
     def drawWindow():
         WIN.blit(BG, (0,0))      #open background
@@ -132,6 +163,17 @@ def main():
         WIN.blit(score_label, (WIDTH - score_label.get_width() -10, 10))
         noncore_label = main_font.render(f"Noncore: {noncore}", 1, (255, 255, 0))
         WIN.blit(noncore_label, (10, 130))
+
+        for trap in trap_patterns[:]:
+            if trap["warn"]:
+                end_x = trap["x"]+trap["dx"] * WIDTH
+                end_y = trap["y"]+trap["dy"] * HEIGHT
+                pygame.draw.line(WIN, (200, 200, 200), (trap["x"], trap["y"]), (end_x, end_y), 2)
+            else:
+                end_x = trap["x"]+trap["dx"] * WIDTH
+                end_y = trap["y"]+trap["dy"] * HEIGHT
+                pygame.draw.line(WIN, (250, 0, 0), (trap["x"], trap["y"]), (end_x, end_y), 3) 
+        pygame.display.update()
 
         for enemy in enemies:
             enemy.draw(WIN)
@@ -173,6 +215,19 @@ def main():
                 enemy.shoot_cooldown = random.randint(60, 120)
             enemy.move_laser(player)
 
+        for enemy in enemies[:]:
+            if player.x < enemy.x + enemy.get_width() and player.x + player.get_width() > enemy.x and player.y < enemy.y + enemy.get_height() and player.y + player.get_height() > enemy.y:
+                life -= 1
+                enemies.remove(enemy)
+        
+            for laser in enemy.lasers[:]:
+                for other in enemies[:]:
+                    if other != enemy and laser.collide(other):
+                        enemies.remove(other)
+                        enemy.lasers.remove(laser)
+                        player.health += 1
+                        break
+
         for laser in player.lasers[:]:
             laser.move()
             for enemy in enemies[:]:
@@ -180,19 +235,40 @@ def main():
                     enemies.remove(enemy)
                     player.lasers.remove(laser)
                     scores += 10
-                    life += 1
+                    player.health += 1
                     break
             else:
                 if laser.off_screen(WIDTH, HEIGHT):
                     player.lasers.remove(laser)
 
-        if scores == 540 and not trap_phase:
+        if scores == 520 and not trap_phase:
             enemies.clear()
             trap_phase = True
             trap_timer = pygame.time.get_ticks()
             trap_patterns = []
         if trap_phase:
             now = pygame.time.get_ticks()
+            for trap in trap_patterns[:]:
+                if trap["warn"]:
+                    if now - trap["start_time"] > 1500:
+                        trap["warn"] = False
+                        trap["start_time"] = now
+                    continue
+                trap["x"] = trap["dx"] * 10
+                trap["y"] = trap["dy"] * 10
+                for enemy in enemies[:]:
+                    if enemy.x < trap["x"] < enemy.x + enemy.get_width() and enemy.y < trap["y"] < enemy.y + enemy.get_height():
+                        enemies.remove(enemy)
+                        player.health += 1
+                        break 
+
+                if player.x < trap["x"] < player.x + 50 and player.y < trap["y"] < player.y + 50:
+                    life -= 1 
+                    trap_patterns.remove(trap)
+                    continue
+                if not(0 <= trap["x"] <= WIDTH and 0 <= trap["y"] <= HEIGHT):
+                    trap_patterns.remove(trap)
+
             if trap_cooldown <= 0:
                 for _ in range(random.randint(3, 6)):
                     angle = random.uniform(0, 2*3.14)
@@ -209,26 +285,11 @@ def main():
                 trap_cooldown = 2000
             else:
                 trap_cooldown -= clock.get_time()
-            for trap in trap_patterns[:]:
-                if trap["warn"]:
-                    end_x = trap["x"] + trap["dx"]* 300
-                    end_y = trap["y"] + trap["dy"]* 300
-                    pygame.draw.line(WIN, (150, 150, 150), (trap["x"], trap["y"]), (end_x, end_y), 2)
-                if now - trap["start_time"] > 800:
-                    trap["warn"] = False
-                    trap["start_time"] = now
-            else:
-                trap["x"] += trap["dx"] * 10
-                trap["y"] += trap["dy"] * 10
-                pygame.draw.line(WIN, (250, 0, 0), (trap["x"], trap["y"]), (trap["x"] + trap["dx"] * 10, trap["y"] + trap["dy"] * 10), 3)
-                if player.x < trap["x"] < player.x + 50 and player.y < trap["y"] < player.y + 50:
-                    life -= 1 
-                    if trap in trap_patterns:
-                        trap_patterns.remove(trap)
+
             if now - trap_timer > 15000 and not trap_patterns: #15 seconds
                 trap_phase = False
                 trap_cooldown = 0
-                enemies.append(Enemy(random.randint(100, WIDTH - 100), random.randint(100, HEIGHT - 100, "red")))
+                enemies.append(Enemy(random.randint(100, WIDTH - 100), random.randint(100, HEIGHT - 100), "red"))
                 #enemies[0].lasers.clear()
         if not trap_phase and len(enemies) == 1:
             enemy = enemies[0]
@@ -271,8 +332,13 @@ def main():
         key = pygame.key.get_pressed()
         if key[pygame.K_RIGHT] and player.x + player_vel + player.get_width() < WIDTH :
             player.x += player_vel 
+        if key[pygame.K_SPACE] and enemies:
+            closest_enemy = min(enemies, key=lambda e: math.hypot(e.x - player.x, e.y - player.y))
+            player.shoot((closest_enemy.x + 25, closest_enemy.y +25))
         for enemy in enemies:
             enemy.move(player.x, player.y, enemy_vel)
-
+        life = player.health
+        if life <= 0:
+            game_over_screen()
         drawWindow()
 main()
